@@ -1,0 +1,15 @@
+__pycache__/
+*.py[cod]
+*.ovpn
+*.conf
+*.key
+*.crt
+*.pem
+*.p12
+*.log
+.env
+.venv/
+venv/
+.vscode/
+.idea/
+.DS_Store

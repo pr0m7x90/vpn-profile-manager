@@ -1,0 +1,24 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check Bash syntax
+        run: |
+          bash -n install.sh
+          bash -n src/connect
+          bash -n src/check
+          bash -n src/disconnect
+
+      - name: Check Python syntax
+        run: python3 -m py_compile src/profile_manager.py
+
+      - name: Run Python tests
+        run: python3 -m unittest discover -s tests -v

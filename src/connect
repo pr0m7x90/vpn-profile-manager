@@ -1,0 +1,68 @@
+#!/usr/bin/env bash
+set -u
+
+CONFIG_DIR="${VPNPM_CONFIG_DIR:-/etc/vpn-profile-manager}"
+PROFILE_DIR="$CONFIG_DIR/profiles"
+RUN_DIR="${VPNPM_RUN_DIR:-/run/vpn-profile-manager}"
+LOG_DIR="${VPNPM_LOG_DIR:-/var/log/vpn-profile-manager}"
+
+usage() { echo "Usage: sudo connect <profile-alias>"; }
+die() { echo "[!] $1"; exit 1; }
+
+[[ $# -eq 1 ]] || { usage; exit 1; }
+[[ $EUID -eq 0 ]] || die "Run this command with sudo."
+
+alias_name="$1"
+[[ "$alias_name" =~ ^[A-Za-z0-9_-]+$ ]] || die "Invalid profile alias."
+
+profile="$PROFILE_DIR/$alias_name"
+[[ -d "$profile" ]] || die "Profile '$alias_name' does not exist."
+[[ -f "$profile/name" && -f "$profile/config" ]] || die "Profile '$alias_name' is incomplete."
+
+vpn_name="$(cat "$profile/name")"
+vpn_file="$(cat "$profile/config")"
+
+[[ -f "$vpn_file" ]] || die "OVPN configuration file not found: $vpn_file"
+command -v openvpn >/dev/null 2>&1 || die "OpenVPN is not installed."
+
+if pgrep -x openvpn >/dev/null 2>&1; then
+    die "An OpenVPN process is already running."
+fi
+
+mkdir -p "$RUN_DIR" "$LOG_DIR"
+chmod 700 "$RUN_DIR" "$LOG_DIR"
+
+pid_file="$RUN_DIR/$alias_name.pid"
+log_file="$LOG_DIR/$alias_name.log"
+rm -f "$pid_file"
+
+echo "[*] Connecting to $vpn_name..."
+
+openvpn --config "$vpn_file" --daemon --writepid "$pid_file" --log "$log_file"
+sleep 3
+
+if [[ ! -f "$pid_file" ]]; then
+    echo "[!] OpenVPN did not create a PID file."
+    echo "[*] Check: sudo cat $log_file"
+    exit 1
+fi
+
+pid="$(cat "$pid_file")"
+if ! kill -0 "$pid" 2>/dev/null; then
+    echo "[!] OpenVPN stopped unexpectedly."
+    echo "[*] Check: sudo cat $log_file"
+    rm -f "$pid_file"
+    exit 1
+fi
+
+for _ in {1..10}; do
+    if ip link show tun0 >/dev/null 2>&1; then
+        echo "[+] $vpn_name connected."
+        echo "[+] Interface: tun0"
+        exit 0
+    fi
+    sleep 1
+done
+
+echo "[!] OpenVPN is running, but tun0 is not ready yet."
+echo "[*] Run: check $alias_name"
